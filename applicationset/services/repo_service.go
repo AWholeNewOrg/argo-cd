@@ -7,10 +7,17 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/gregjones/httpcache"
+
+	gh "github.com/argoproj/argo-cd/v2/applicationset/services/internal/github"
 	"github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v2/util/db"
 	"github.com/argoproj/argo-cd/v2/util/git"
 )
+
+func ContextWithGithubCache(ctx context.Context, cache httpcache.Cache) context.Context {
+	return gh.ContextWithGithubCache(ctx, cache)
+}
 
 // RepositoryDB Is a lean facade for ArgoDB,
 // Using a lean interface makes it more easy to test the functionality the git generator uses

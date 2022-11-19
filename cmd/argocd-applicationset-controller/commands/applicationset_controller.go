@@ -2,6 +2,7 @@ package command
 
 import (
 	"fmt"
+	"github.com/die-net/lrucache"
 	"net/http"
 	"os"
 	"time"
@@ -46,16 +47,17 @@ func getSubmoduleEnabled() bool {
 
 func NewCommand() *cobra.Command {
 	var (
-		clientConfig         clientcmd.ClientConfig
-		metricsAddr          string
-		probeBindAddr        string
-		webhookAddr          string
-		enableLeaderElection bool
-		namespace            string
-		argocdRepoServer     string
-		policy               string
-		debugLog             bool
-		dryRun               bool
+		clientConfig          clientcmd.ClientConfig
+		metricsAddr           string
+		probeBindAddr         string
+		webhookAddr           string
+		enableLeaderElection  bool
+		namespace             string
+		argocdRepoServer      string
+		policy                string
+		debugLog              bool
+		dryRun                bool
+		githubClientCacheSize int64
 	)
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
@@ -125,6 +127,9 @@ func NewCommand() *cobra.Command {
 			askPassServer := askpass.NewServer()
 			scmAuth := generators.SCMAuthProviders{
 				GitHubApps: github_app.NewAuthCredentials(argoCDDB.(db.RepoCredsDB)),
+			}
+			if githubClientCacheSize > 0 {
+				scmAuth.GitHubClientCache = lrucache.New(githubClientCacheSize*1000, 0)
 			}
 			terminalGenerators := map[string]generators.Generator{
 				"List":                    generators.NewListGenerator(),
@@ -205,6 +210,7 @@ func NewCommand() *cobra.Command {
 	command.Flags().StringVar(&cmdutil.LogFormat, "logformat", env.StringFromEnv("ARGOCD_APPLICATIONSET_CONTROLLER_LOGFORMAT", "text"), "Set the logging format. One of: text|json")
 	command.Flags().StringVar(&cmdutil.LogLevel, "loglevel", env.StringFromEnv("ARGOCD_APPLICATIONSET_CONTROLLER_LOGLEVEL", "info"), "Set the logging level. One of: debug|info|warn|error")
 	command.Flags().BoolVar(&dryRun, "dry-run", env.ParseBoolFromEnv("ARGOCD_APPLICATIONSET_CONTROLLER_DRY_RUN", false), "Enable dry run mode")
+	command.Flags().Int64Var(&githubClientCacheSize, "github-client-cache-size", env.ParseInt64FromEnv("ARGOCD_APPLICATIONSET_CONTROLLER_GITHUB_CLIENT_CACHE_SIZE", 0, 0, 0), "The size (in kilobytes) of the cache for GitHub client. No cache if set to 0")
 	return &command
 }
 
