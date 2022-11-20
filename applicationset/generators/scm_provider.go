@@ -6,9 +6,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gregjones/httpcache"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/argoproj/argo-cd/v2/applicationset/services"
 	"github.com/argoproj/argo-cd/v2/applicationset/services/github_app_auth"
 	"github.com/argoproj/argo-cd/v2/applicationset/services/scm_provider"
 	"github.com/argoproj/argo-cd/v2/applicationset/utils"
@@ -29,7 +31,8 @@ type SCMProviderGenerator struct {
 }
 
 type SCMAuthProviders struct {
-	GitHubApps github_app_auth.Credentials
+	GitHubApps        github_app_auth.Credentials
+	GitHubClientCache httpcache.Cache
 }
 
 func NewSCMProviderGenerator(client client.Client, providers SCMAuthProviders) Generator {
@@ -177,6 +180,9 @@ func (g *SCMProviderGenerator) getSecretRef(ctx context.Context, ref *argoprojio
 }
 
 func (g *SCMProviderGenerator) githubProvider(ctx context.Context, github *argoprojiov1alpha1.SCMProviderGeneratorGithub, applicationSetInfo *argoprojiov1alpha1.ApplicationSet) (scm_provider.SCMProviderService, error) {
+	if g.GitHubClientCache != nil {
+		ctx = services.ContextWithGithubCache(ctx, g.GitHubClientCache)
+	}
 	if github.AppSecretName != "" {
 		auth, err := g.GitHubApps.GetAuthSecret(ctx, github.AppSecretName)
 		if err != nil {

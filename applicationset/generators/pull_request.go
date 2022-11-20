@@ -11,6 +11,7 @@ import (
 
 	"github.com/gosimple/slug"
 
+	"github.com/argoproj/argo-cd/v2/applicationset/services"
 	"github.com/argoproj/argo-cd/v2/applicationset/services/pull_request"
 	pullrequest "github.com/argoproj/argo-cd/v2/applicationset/services/pull_request"
 	argoprojiov1alpha1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
@@ -138,6 +139,9 @@ func (g *PullRequestGenerator) selectServiceProvider(ctx context.Context, genera
 }
 
 func (g *PullRequestGenerator) github(ctx context.Context, cfg *argoprojiov1alpha1.PullRequestGeneratorGithub, applicationSetInfo *argoprojiov1alpha1.ApplicationSet) (pullrequest.PullRequestService, error) {
+	if g.auth.GitHubClientCache != nil {
+		ctx = services.ContextWithGithubCache(ctx, g.auth.GitHubClientCache)
+	}
 	// use an app if it was configured
 	if cfg.AppSecretName != "" {
 		auth, err := g.auth.GitHubApps.GetAuthSecret(ctx, cfg.AppSecretName)
