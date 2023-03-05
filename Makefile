@@ -189,8 +189,7 @@ gogen: ensure-gopath
 	go generate ./util/argo/...
 
 .PHONY: protogen
-protogen: ensure-gopath mod-vendor-local
-	export GO111MODULE=off
+protogen: mod-vendor-local
 	./hack/generate-proto.sh
 
 .PHONY: openapigen

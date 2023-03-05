@@ -9,10 +9,14 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-# shellcheck disable=SC2128
-PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE}")"/..; pwd)
+cd "$(dirname "${BASH_SOURCE[0]}")"/..
+PROJECT_ROOT="$(pwd)"
 PATH="${PROJECT_ROOT}/dist:${PATH}"
-GOPATH=$(go env GOPATH)
+
+[ -d vendor ] || {
+    echo "vendor directory not found. Create it with 'go mod vendor' or 'make mod-vendor-local'"
+    exit 1
+}
 
 # output tool versions
 go version
@@ -20,7 +24,17 @@ protoc --version
 swagger version
 jq --version
 
-export GO111MODULE=off
+# Because of inconsistencies with `mktemp -d` on different platforms, use
+# `mktemp` to create a temporary file and then replace it with a directory
+# of the same name.
+TMP_DIR="$(mktemp)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+rm "$TMP_DIR"
+mkdir -p "$TMP_DIR"
+
+GO_TO_PROTOBUF_DIR="$TMP_DIR"/go-to-protobuf
+mkdir -p "$GO_TO_PROTOBUF_DIR"/github.com/argoproj/argo-cd
+ln -s "$PROJECT_ROOT" "$GO_TO_PROTOBUF_DIR"/github.com/argoproj/argo-cd/v2
 
 # Generate pkg/apis/<group>/<apiversion>/(generated.proto,generated.pb.go)
 # NOTE: any dependencies of our types to the k8s.io apimachinery types should be added to the
@@ -40,7 +54,6 @@ APIMACHINERY_PKGS=(
 )
 
 export GO111MODULE=on
-[ -e ./v2 ] || ln -s . v2
 
 # protoc_include is the include directory containing the .proto files distributed with protoc binary
 if [ -d /dist/protoc-include ]; then
@@ -51,12 +64,17 @@ else
     protoc_include=${PROJECT_ROOT}/dist/protoc-include
 fi
 
-go-to-protobuf \
+(
+  cd "$GO_TO_PROTOBUF_DIR"/github.com/argoproj/argo-cd/v2
+  go-to-protobuf \
     --go-header-file="${PROJECT_ROOT}"/hack/custom-boilerplate.go.txt \
     --packages="$(IFS=, ; echo "${PACKAGES[*]}")" \
     --apimachinery-packages="$(IFS=, ; echo "${APIMACHINERY_PKGS[*]}")" \
-    --proto-import=./vendor \
-    --proto-import="${protoc_include}"
+    --proto-import="$PROJECT_ROOT"/vendor \
+    --proto-import="${protoc_include}" \
+    --output-base="$GO_TO_PROTOBUF_DIR"
+)
+rm -rf "$GO_TO_PROTOBUF_DIR"
 
 # Either protoc-gen-go, protoc-gen-gofast, or protoc-gen-gogofast can be used to build
 # server/*/<service>.pb.go from .proto files. golang/protobuf and gogo/protobuf can be used
@@ -70,25 +88,21 @@ go-to-protobuf \
 GOPROTOBINARY=gogofast
 
 # Generate server/<service>/(<service>.pb.go|<service>.pb.gw.go)
-MOD_ROOT=${GOPATH}/pkg/mod
-grpc_gateway_version=$(go list -m github.com/grpc-ecosystem/grpc-gateway | awk '{print $NF}' | head -1)
-GOOGLE_PROTO_API_PATH=${MOD_ROOT}/github.com/grpc-ecosystem/grpc-gateway@${grpc_gateway_version}/third_party/googleapis
-GOGO_PROTOBUF_PATH=${PROJECT_ROOT}/vendor/github.com/gogo/protobuf
-PROTO_FILES=$(find "$PROJECT_ROOT" \( -name "*.proto" -and -path '*/server/*' -or -path '*/reposerver/*' -and -name "*.proto" -or -path '*/cmpserver/*' -and -name "*.proto" \) | sort)
+PROTOC_DIR="$TMP_DIR"/protoc-imports
+./hack/protoc/prep-protoc-imports.sh "$PROTOC_DIR"
+PROTO_FILES="$(./hack/protoc/proto-files.sh "$PROJECT_ROOT")"
+
 for i in ${PROTO_FILES}; do
     protoc \
         -I"${PROJECT_ROOT}" \
         -I"${protoc_include}" \
-        -I./vendor \
-        -I"$GOPATH"/src \
-        -I"${GOOGLE_PROTO_API_PATH}" \
-        -I"${GOGO_PROTOBUF_PATH}" \
-        --${GOPROTOBINARY}_out=plugins=grpc:"$GOPATH"/src \
-        --grpc-gateway_out=logtostderr=true:"$GOPATH"/src \
+        -I"$PROTOC_DIR" \
+        --${GOPROTOBINARY}_out=plugins=grpc:"$PROTOC_DIR" \
+        --grpc-gateway_out=logtostderr=true:"$PROTOC_DIR" \
         --swagger_out=logtostderr=true:. \
-        $i
+        "$i"
 done
-[ -e ./v2 ] && rm -rf v2
+rm -rf "$PROTOC_DIR"
 
 # collect_swagger gathers swagger files into a subdirectory
 collect_swagger() {
